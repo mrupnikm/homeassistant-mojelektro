@@ -30,5 +30,17 @@
       "already_configured": "This device is already configured.",
       "reauth_successful": "Re-authentication was successful."
     }
+  },
+  "services": {
+    "rebuild_statistics": {
+      "name": "Rebuild statistics",
+      "description": "Fetches the 15-minute readings of the last days from Moj Elektro again and rewrites the hourly statistics, including the tariff block and VT/MT statistics. Use it to pick up corrected readings or to repair statistics.",
+      "fields": {
+        "days": {
+          "name": "Days",
+          "description": "Number of days before today to fetch and rewrite."
+        }
+      }
+    }
   }
 }

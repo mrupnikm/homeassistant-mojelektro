@@ -110,11 +110,21 @@ def test_build_statistics_running_sum():
 
 
 class FakeRecorder:
-    """In-memory stand-in for the recorder statistics API."""
+    """In-memory stand-in for the recorder statistics API.
+
+    Like the real recorder, imports are queued and only become visible to
+    queries once the queue has been processed (async_block_till_done).
+    """
 
     def __init__(self):
         self.rows = {}
         self.metadata = {}
+        self.pending = []
+
+    async def async_block_till_done(self):
+        pending, self.pending = self.pending, []
+        for metadata, rows in pending:
+            self._write(metadata, rows)
 
     async def async_add_executor_job(self, func, *args):
         return func(*args)
@@ -140,6 +150,9 @@ class FakeRecorder:
         return result
 
     def async_add_external_statistics(self, hass, metadata, rows):
+        self.pending.append((metadata, list(rows)))
+
+    def _write(self, metadata, rows):
         stat_id = metadata["statistic_id"]
         self.metadata[stat_id] = metadata
         stored = self.rows.setdefault(stat_id, {})
@@ -327,8 +340,8 @@ def test_backfill_adds_tariff_statistics_to_existing_install(recorder):
     hourly = aggregate_hourly(
         statistics.readings_for_tag(cache_for(datetime(2026, 11, 10)), "A+")
     )
-    recorder.async_add_external_statistics(
-        None, {"statistic_id": CONSUMPTION}, build_statistics(hourly, 0.0)
+    recorder._write(
+        {"statistic_id": CONSUMPTION}, build_statistics(hourly, 0.0)
     )
     api = FakeApi([datetime(2026, 11, 9), datetime(2026, 11, 10)])
     asyncio.run(statistics.async_backfill(None, api, date(2026, 11, 11)))
@@ -368,3 +381,42 @@ def test_define_request_with_explicit_dates():
     url = api.define_request("15min", "2026-10-01", "2026-11-01")
     assert "startTime=2026-10-01&endTime=2026-11-01" in url
     assert "ReadingType%3D32.0.2.4.1.2.12" in url
+
+
+def drops(recorder, suffix):
+    rows = sorted(recorder.rows[stat(suffix)].values(), key=lambda r: r["start"])
+    return [cur for prev, cur in zip(rows, rows[1:]) if cur["sum"] < prev["sum"]]
+
+
+def test_daily_import_right_after_backfill_continues_sums(recorder):
+    # Upgrade from the first 0.3.0 build: only the total exists. The backfill
+    # runs and the daily import follows before the recorder has written it.
+    hourly = aggregate_hourly(
+        statistics.readings_for_tag(cache_for(datetime(2026, 11, 10)), "A+")
+    )
+    recorder._write({"statistic_id": CONSUMPTION}, build_statistics(hourly, 0.0))
+    api = FakeApi([datetime(2026, 11, 9), datetime(2026, 11, 10)])
+    asyncio.run(statistics.async_backfill(None, api, date(2026, 11, 11)))
+    run_import(cache_for(datetime(2026, 11, 10)))
+
+    for suffix in ["consumption", "mt", "vt", "blok_3"]:
+        assert not drops(recorder, suffix)
+    assert recorder.sums(stat("mt"))[-1] + recorder.sums(stat("vt"))[-1] == (
+        pytest.approx(48.0)
+    )
+
+
+def test_rebuild_repairs_a_restarted_sum(recorder):
+    api = FakeApi([datetime(2026, 11, 9), datetime(2026, 11, 10)])
+    asyncio.run(statistics.async_rebuild(None, api, date(2026, 11, 11), 30))
+    # Corrupt 10 Nov as the race did: its running sum restarts from zero.
+    hourly = aggregate_hourly(
+        statistics.readings_for_tag(cache_for(datetime(2026, 11, 10)), "A+"),
+        statistics._is_low_energy_tariff,
+    )
+    recorder._write({"statistic_id": stat("mt")}, build_statistics(hourly, 0.0))
+    assert drops(recorder, "mt")
+
+    asyncio.run(statistics.async_rebuild(None, api, date(2026, 11, 11), 30))
+    assert not drops(recorder, "mt")
+    assert recorder.sums(stat("mt"))[-1] == pytest.approx(16.0)

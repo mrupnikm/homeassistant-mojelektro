@@ -41,6 +41,8 @@ async def async_setup_entry(
     session = async_get_clientsession(hass)
 
     api = MojElektroApi(token, meter_id, decimal, session)
+    # Used by the mojelektro.rebuild_statistics action.
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = api
     last_imported_date = None
     backfill_checked = False
 
