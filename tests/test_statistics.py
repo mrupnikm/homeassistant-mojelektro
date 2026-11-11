@@ -1,12 +1,13 @@
 """Tests for importing 15-minute readings into long-term statistics."""
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from custom_components.mojelektro import statistics
+from custom_components.mojelektro.moj_elektro_api import MojElektroApi
 from custom_components.mojelektro.statistics import (
     aggregate_hourly,
     build_statistics,
@@ -221,3 +222,149 @@ def test_hours_older_than_reimport_window_are_not_rewritten(recorder):
     before = dict(recorder.rows[CONSUMPTION])
     run_import(cache_for(datetime(2026, 11, 2), value=5))
     assert recorder.rows[CONSUMPTION] == before
+
+
+def stat(suffix):
+    return f"mojelektro:3_12345678_{suffix}"
+
+
+def states(recorder, suffix):
+    return [row["state"] for _, row in sorted(recorder.rows[stat(suffix)].items())]
+
+
+def test_tariff_statistics_partition_the_total(recorder):
+    # Tuesday 10 November 2026: high season workday.
+    run_import(cache_for(datetime(2026, 11, 10)))
+    total = states(recorder, "consumption")
+    blocks = [states(recorder, f"blok_{block}") for block in range(1, 6)]
+    vt = states(recorder, "vt")
+    mt = states(recorder, "mt")
+
+    assert all(len(series) == 24 for series in [*blocks, vt, mt])
+    for hour, value in enumerate(total):
+        assert sum(series[hour] for series in blocks) == pytest.approx(value)
+        assert vt[hour] + mt[hour] == pytest.approx(value)
+
+    # Local hours: blok 3 00-06 and 22-24, blok 1 06-12 and 17-20.
+    assert sum(blocks[2]) == pytest.approx(8.0)
+    assert sum(blocks[0]) == pytest.approx(9.0)
+    assert sum(blocks[1]) == pytest.approx(7.0)
+    assert sum(blocks[3]) == sum(blocks[4]) == 0
+    assert sum(vt) == pytest.approx(16.0)
+    assert sum(mt) == pytest.approx(8.0)
+
+
+def test_tariff_statistics_on_dst_day(recorder):
+    # Sunday 25 October 2026: low season day off, 25 hours.
+    run_import(cache_for(datetime(2026, 10, 25)))
+    assert len(states(recorder, "blok_4")) == 25
+    assert sum(states(recorder, "blok_4")) + sum(
+        states(recorder, "blok_5")
+    ) == pytest.approx(25.0)
+    assert sum(states(recorder, "vt")) == 0
+    assert sum(states(recorder, "mt")) == pytest.approx(25.0)
+
+
+def run_full_import(cache):
+    asyncio.run(statistics.async_import(None, METER, cache, full=True))
+
+
+def test_full_import_inserts_history_before_existing_rows(recorder):
+    run_import(cache_for(datetime(2026, 11, 10)))
+    run_full_import(
+        cache_for(datetime(2026, 11, 8), datetime(2026, 11, 9), datetime(2026, 11, 10))
+    )
+    sums = recorder.sums(CONSUMPTION)
+    assert len(sums) == 72
+    assert sums[0] == pytest.approx(1.0)
+    assert sums[-1] == pytest.approx(72.0)
+    rows = sorted(recorder.rows[CONSUMPTION].values(), key=lambda r: r["start"])
+    for prev, cur in zip(rows, rows[1:]):
+        assert cur["sum"] - prev["sum"] == pytest.approx(cur["state"])
+
+
+def test_full_import_skips_data_ending_before_stored_rows(recorder):
+    run_import(cache_for(datetime(2026, 11, 10)))
+    before = dict(recorder.rows[CONSUMPTION])
+    run_full_import(cache_for(datetime(2026, 11, 8)))
+    assert recorder.rows[CONSUMPTION] == before
+
+
+def test_full_import_continues_from_older_rows(recorder):
+    run_import(cache_for(datetime(2026, 10, 1)))
+    run_import(cache_for(datetime(2026, 11, 9)))
+    run_full_import(cache_for(datetime(2026, 11, 8), datetime(2026, 11, 9)))
+    sums = recorder.sums(CONSUMPTION)
+    assert sums == sorted(sums)
+    assert sums[-1] == pytest.approx(24.0 * 3)
+
+
+class FakeApi:
+    meter_id = METER
+
+    def __init__(self, days):
+        self.days = days
+        self.ranges = []
+
+    async def getMeterReadingsRange(self, start, end):
+        self.ranges.append((start, end))
+        return cache_for(*self.days)
+
+
+def test_backfill_runs_only_when_statistics_are_missing(recorder):
+    api = FakeApi([datetime(2026, 11, 9), datetime(2026, 11, 10)])
+    asyncio.run(statistics.async_backfill(None, api, date(2026, 11, 11)))
+    assert api.ranges == [(date(2026, 10, 12), date(2026, 11, 11))]
+    assert recorder.sums(CONSUMPTION)[-1] == pytest.approx(48.0)
+    assert len(states(recorder, "blok_1")) == 48
+
+    asyncio.run(statistics.async_backfill(None, api, date(2026, 11, 12)))
+    assert len(api.ranges) == 1
+
+
+def test_backfill_adds_tariff_statistics_to_existing_install(recorder):
+    # Only the total exists, as after upgrading from the first 0.3.0 build.
+    hourly = aggregate_hourly(
+        statistics.readings_for_tag(cache_for(datetime(2026, 11, 10)), "A+")
+    )
+    recorder.async_add_external_statistics(
+        None, {"statistic_id": CONSUMPTION}, build_statistics(hourly, 0.0)
+    )
+    api = FakeApi([datetime(2026, 11, 9), datetime(2026, 11, 10)])
+    asyncio.run(statistics.async_backfill(None, api, date(2026, 11, 11)))
+    assert recorder.sums(CONSUMPTION)[-1] == pytest.approx(48.0)
+    assert len(recorder.rows[CONSUMPTION]) == 48
+    assert len(states(recorder, "vt")) == 48
+
+
+class FakeSessionApi(MojElektroApi):
+    def __init__(self):
+        super().__init__("t", METER, 4, None)
+        self.requests = []
+
+    async def getMeterReadings(self, rType=None, date_from=None, date_to=None):
+        self.requests.append((rType, date_from, date_to))
+        # Every chunk returns 1 November, so the merge sees duplicates.
+        return cache_for(datetime(2026, 11, 1))
+
+
+def test_meter_readings_range_is_chunked_and_merged():
+    api = FakeSessionApi()
+    blocks = asyncio.run(
+        api.getMeterReadingsRange(date(2026, 10, 1), date(2026, 11, 11))
+    )
+    assert api.requests == [
+        ("15min", "2026-10-01", "2026-11-01"),
+        ("15min", "2026-11-01", "2026-11-11"),
+    ]
+    a_plus = statistics.readings_for_tag(blocks, "A+")
+    assert len(a_plus) == 2 * 96
+    # Duplicate readings across chunks are counted once.
+    assert len(aggregate_hourly(a_plus)) == 24
+
+
+def test_define_request_with_explicit_dates():
+    api = MojElektroApi("t", METER, 4, None)
+    url = api.define_request("15min", "2026-10-01", "2026-11-01")
+    assert "startTime=2026-10-01&endTime=2026-11-01" in url
+    assert "ReadingType%3D32.0.2.4.1.2.12" in url

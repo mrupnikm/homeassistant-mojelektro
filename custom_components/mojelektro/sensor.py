@@ -42,12 +42,20 @@ async def async_setup_entry(
 
     api = MojElektroApi(token, meter_id, decimal, session)
     last_imported_date = None
+    backfill_checked = False
 
     async def async_import_statistics():
         """Import validated 15-minute data into statistics once per day."""
-        nonlocal last_imported_date
+        nonlocal last_imported_date, backfill_checked
         if not api.cacheOK or api.cache_date == last_imported_date:
             return
+        if not backfill_checked:
+            # Checked once per start; a failed backfill is retried after a restart.
+            backfill_checked = True
+            try:
+                await statistics.async_backfill(hass, api, api.cache_date)
+            except Exception:  # noqa: BLE001 - never break sensor updates
+                _LOGGER.exception("Failed to backfill Moj Elektro statistics")
         try:
             await statistics.async_import(hass, meter_id, api.cache.get("15"))
         except Exception:  # noqa: BLE001 - never break sensor updates

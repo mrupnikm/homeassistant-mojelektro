@@ -1,9 +1,12 @@
 # Configuration for MojElektroApi
 DOMAIN = "mojelektro"
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 CONF_TOKEN = "token"  # Adjusted from TOKEN to CONF_TOKEN
 CONF_METER_ID = "meter_id"  # Adjusted from METER_ID to CONF_METER_ID
 CONF_DECIMAL = "decimal"
+
+# Days of 15-minute history imported into statistics when they are first created.
+BACKFILL_DAYS = 30
 
 SETUP_TAG_BLOCKS_ARRAY = '[{"oznaka": "blok_1", "sensor": "daily_input_blok_1"}, {"oznaka": "blok_2", "sensor": "daily_input_blok_2"}, {"oznaka": "blok_3", "sensor": "daily_input_blok_3"}, {"oznaka": "blok_4", "sensor": "daily_input_blok_4"}, {"oznaka": "blok_5", "sensor": "daily_input_blok_5"}]'
 SETUP_TAG_15_ARRAY = '[{"oznaka": "A+", "sensor": "15min_input"}, {"oznaka": "A-", "sensor": "15min_output"}]'

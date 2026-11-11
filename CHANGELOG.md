@@ -4,6 +4,19 @@ All notable changes to this maintained fork are documented here.
 
 This project is a maintained fork of [frlequ/homeassistant-mojelektro](https://github.com/frlequ/homeassistant-mojelektro). Upstream authorship and the original MIT license are preserved.
 
+## [0.3.1] - Unreleased
+
+### Energy dashboard
+
+- new hourly statistics per network tariff block, `mojelektro:<eimm>_blok_1` … `_blok_5`, and per energy tariff, `mojelektro:<eimm>_vt` and `_mt`; each set adds up to the total consumption every hour, so it can replace the total in the Energy dashboard with a separate price per block or tariff
+- backfill: when a consumption statistic has no data yet, the last 30 days of 15-minute readings are fetched (in monthly chunks) and imported; existing rows are rewritten so the running sum stays continuous
+- the 15-minute API request accepts an explicit date range
+
+### Documentation
+
+- explain the three Energy dashboard setups (total, blocks, VT/MT) and that they must not be combined
+- corrected the note on re-imports: they prevent double counting, but only yesterday is fetched daily, so later corrections to older days are not picked up
+
 ## [0.3.0] - Unreleased
 
 ### Energy dashboard
@@ -11,7 +24,8 @@ This project is a maintained fork of [frlequ/homeassistant-mojelektro](https://g
 - import validated Moj Elektro 15-minute readings into Home Assistant long-term statistics with their original timestamps, so the Energy dashboard shows each hour's usage on the hour it happened
 - new external statistics `mojelektro:<eimm>_consumption` (A+) and `mojelektro:<eimm>_export` (A−), hourly resolution
 - interval-end timestamps are shifted to the hour they belong to (the reading stamped 01:00 belongs to 00:00–01:00); incomplete hours are skipped and DST days produce 23/25 hours
-- the last three days are re-imported once per day so corrected readings replace earlier values without double counting
+- 15-minute cache validation now uses the readings of the previous day instead of a fixed 96 readings, so 23- and 25-hour DST days validate and import
+- the last three days are rewritten on each import, so importing the same data again (for example after a restart) does not double count
 - existing sensors are unchanged; history recorded by the old sensors stays on those sensors
 
 ### Compatibility

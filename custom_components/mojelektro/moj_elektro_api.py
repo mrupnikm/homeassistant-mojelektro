@@ -46,9 +46,9 @@ class MojElektroApi:
         return True
 
 
-    async def getMeterReadings(self, rType=None):
+    async def getMeterReadings(self, rType=None, date_from=None, date_to=None):
         """Fetch meter readings from the Moj Elektro API."""
-        url = self.define_request(rType)
+        url = self.define_request(rType, date_from, date_to)
         headers = {"accept": "application/json", "X-API-TOKEN": self.token}
 
         try:
@@ -78,6 +78,33 @@ class MojElektroApi:
             raise MojElektroConnectionError(
                 f"Error connecting to Moj Elektro: {err}"
             ) from err
+
+
+    async def getMeterReadingsRange(self, start, end, chunk_days=31):
+        """Fetch 15-minute readings between two dates, one chunk at a time.
+
+        Chunks overlap by one day; duplicate readings are dropped when the
+        readings are aggregated.
+        """
+        merged = {}
+        chunk_start = start
+        while chunk_start < end:
+            chunk_end = min(chunk_start + timedelta(days=chunk_days), end)
+            blocks = await self.getMeterReadings(
+                "15min",
+                chunk_start.strftime("%Y-%m-%d"),
+                chunk_end.strftime("%Y-%m-%d"),
+            )
+            for block in blocks:
+                reading_type = block.get("readingType")
+                merged.setdefault(reading_type, []).extend(
+                    block.get("intervalReadings") or []
+                )
+            chunk_start = chunk_end
+        return [
+            {"readingType": reading_type, "intervalReadings": readings}
+            for reading_type, readings in merged.items()
+        ]
 
 
     async def getData(self):
@@ -201,8 +228,11 @@ class MojElektroApi:
 
 
 
-    def define_request(self, rType = None):
-        """Define url and request parameters."""
+    def define_request(self, rType = None, date_from = None, date_to = None):
+        """Define url and request parameters.
+
+        Explicit date_from/date_to (YYYY-MM-DD) override the default window.
+        """
         params = ''
         if rType == '15min':
             data = json.loads(SETUP_TAG_15_ARRAY)
@@ -217,6 +247,9 @@ class MojElektroApi:
             if readingType != None:
                 #construct Url params:
                 params = params + "&option=ReadingType%3D" + readingType
+
+        if date_from is not None and date_to is not None:
+            return f'https://api.informatika.si/mojelektro/v1/meter-readings?usagePoint={self.meter_id}&startTime={date_from}&endTime={date_to}{params}'
 
         current_date = datetime.now()
         self.date_to = current_date.strftime("%Y-%m-%d")

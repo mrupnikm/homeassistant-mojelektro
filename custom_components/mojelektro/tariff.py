@@ -93,10 +93,27 @@ def is_slovenian_day_off(value: date) -> bool:
     return value == easter + timedelta(days=1)
 
 
+def _interval_start(timestamp: str) -> datetime:
+    """Return the local interval start for an interval-end timestamp."""
+    interval_end = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    return interval_end - timedelta(minutes=15)
+
+
+def is_high_energy_tariff(timestamp: str) -> bool:
+    """Return whether an interval-end timestamp falls in the VT energy tariff.
+
+    VT (higher tariff) applies 06:00-22:00 on workdays; MT (lower tariff)
+    applies at night and all day on weekends and work-free holidays.
+    """
+    interval_start = _interval_start(timestamp)
+    if is_slovenian_day_off(interval_start.date()):
+        return False
+    return 6 <= interval_start.hour < 22
+
+
 def network_tariff_block(timestamp: str) -> int:
     """Return network tariff block 1-5 for an interval-end timestamp."""
-    interval_end = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-    interval_start = interval_end - timedelta(minutes=15)
+    interval_start = _interval_start(timestamp)
 
     high_season = interval_start.month in HIGH_SEASON_MONTHS
     day_off = is_slovenian_day_off(interval_start.date())
