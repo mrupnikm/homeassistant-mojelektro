@@ -1,15 +1,22 @@
 """Moj Elektro integration."""
 
+from datetime import datetime
 import json
+import logging
 import re
+
+import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 
+from . import statistics
 from .const import (
+    BACKFILL_DAYS,
     CONF_METER_ID,
     DOMAIN,
     SETUP_TAG_15_ARRAY,
@@ -19,6 +26,17 @@ from .const import (
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 PLATFORMS = [Platform.SENSOR]
+
+_LOGGER = logging.getLogger(__name__)
+
+SERVICE_REBUILD_STATISTICS = "rebuild_statistics"
+REBUILD_SCHEMA = vol.Schema(
+    {
+        vol.Optional("days", default=BACKFILL_DAYS): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=366)
+        )
+    }
+)
 
 
 def _expected_sensor_names() -> list[str]:
@@ -78,6 +96,27 @@ def _migrate_legacy_sensor_unique_ids(
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the integration domain."""
+
+    async def async_rebuild_statistics(call: ServiceCall) -> None:
+        """Fetch recent 15-minute data again and rewrite the statistics."""
+        apis = hass.data.get(DOMAIN, {}).values()
+        if not apis:
+            raise HomeAssistantError("No Moj Elektro meter is loaded")
+        end = datetime.now().date()
+        for api in apis:
+            try:
+                await statistics.async_rebuild(hass, api, end, call.data["days"])
+            except Exception as err:
+                raise HomeAssistantError(
+                    f"Rebuilding statistics for {api.meter_id} failed: {err}"
+                ) from err
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REBUILD_STATISTICS,
+        async_rebuild_statistics,
+        schema=REBUILD_SCHEMA,
+    )
     return True
 
 
@@ -102,4 +141,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a Moj Elektro config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unloaded:
+        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+    return unloaded

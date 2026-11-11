@@ -1,6 +1,6 @@
 # Moj Elektro for Home Assistant
 
-[![Version](https://img.shields.io/badge/version-0.3.1-blue.svg)](https://github.com/mrupnikm/homeassistant-mojelektro)
+[![Version](https://img.shields.io/badge/version-0.3.2-blue.svg)](https://github.com/mrupnikm/homeassistant-mojelektro)
 [![Python check](https://github.com/mrupnikm/homeassistant-mojelektro/actions/workflows/python_check.yml/badge.svg)](https://github.com/mrupnikm/homeassistant-mojelektro/actions/workflows/python_check.yml)
 [![Release validation](https://github.com/mrupnikm/homeassistant-mojelektro/actions/workflows/release_validation.yml/badge.svg)](https://github.com/mrupnikm/homeassistant-mojelektro/actions/workflows/release_validation.yml)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/)
@@ -20,7 +20,7 @@ Home Assistant custom integration for electricity-meter data from the Slovenian 
 
 **Maintained fork:** `mrupnikm/homeassistant-mojelektro`  
 **Maintainer:** [`mrupnikm`](https://github.com/mrupnikm)  
-**Current version:** `0.3.1`  
+**Current version:** `0.3.2`  
 **Home Assistant baseline:** `2025.11+`  
 **API:** `https://api.informatika.si/mojelektro/v1`
 
@@ -72,10 +72,20 @@ Notes:
 - resolution is hourly, which is the finest resolution of long-term statistics
 - an hour is imported only once all four of its 15-minute readings are available
 - the first time any consumption statistic is missing (new install or upgrade), the last 30 days are fetched from Moj Elektro and imported (backfill); it runs once per Home Assistant start and is retried after a restart if it fails
-- after that, only yesterday is fetched each day; re-importing the same data never double counts, but corrections Moj Elektro makes to older days are not picked up
+- after that, only yesterday is fetched each day; re-importing the same data never double counts, but corrections Moj Elektro makes to older days are only picked up by the `mojelektro.rebuild_statistics` action (below)
 - history recorded by the old sensors stays on those sensors and is not moved to the new statistics
 - all existing sensors are kept unchanged for backward compatibility
 - you can check the imported rows under **Developer tools → Statistics**, or with the `recorder.get_statistics` action under **Developer tools → Actions**
+
+### Rebuilding statistics
+
+The **Moj Elektro: Rebuild statistics** action (`mojelektro.rebuild_statistics`) fetches the 15-minute readings of the last `days` days (default 30, up to 366) again for every configured meter and rewrites all Moj Elektro statistics for that period. Use it to pick up readings Moj Elektro corrected later, or to repair statistics. Run it under **Developer tools → Actions**:
+
+```yaml
+action: mojelektro.rebuild_statistics
+data:
+  days: 30
+```
 
 ## Why this fork exists
 

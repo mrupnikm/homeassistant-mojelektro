@@ -258,14 +258,18 @@ async def async_needs_backfill(hass: HomeAssistant, meter_id: str) -> bool:
     return False
 
 
-async def async_backfill(hass: HomeAssistant, api, end: date) -> None:
-    """Import the last BACKFILL_DAYS before end when statistics are missing."""
-    if not await async_needs_backfill(hass, api.meter_id):
-        return
-    start = end - timedelta(days=BACKFILL_DAYS)
-    _LOGGER.debug("Backfilling statistics from %s to %s", start, end)
+async def async_rebuild(hass: HomeAssistant, api, end: date, days: int) -> None:
+    """Fetch the given number of days before end and rewrite their statistics."""
+    start = end - timedelta(days=days)
+    _LOGGER.debug("Rebuilding statistics from %s to %s", start, end)
     readings = await api.getMeterReadingsRange(start, end)
     await async_import(hass, api.meter_id, readings, full=True)
+
+
+async def async_backfill(hass: HomeAssistant, api, end: date) -> None:
+    """Import the last BACKFILL_DAYS before end when statistics are missing."""
+    if await async_needs_backfill(hass, api.meter_id):
+        await async_rebuild(hass, api, end, BACKFILL_DAYS)
 
 
 async def async_import(
@@ -308,3 +312,8 @@ async def async_import(
             rows[0]["start"],
             rows[-1]["start"],
         )
+
+    # Imports are queued in the recorder. Wait until they are written, so a
+    # following import (e.g. the daily one right after a backfill) reads the
+    # new rows instead of starting its running sum again from zero.
+    await get_instance(hass).async_block_till_done()

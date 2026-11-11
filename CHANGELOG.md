@@ -4,6 +4,16 @@ All notable changes to this maintained fork are documented here.
 
 This project is a maintained fork of [frlequ/homeassistant-mojelektro](https://github.com/frlequ/homeassistant-mojelektro). Upstream authorship and the original MIT license are preserved.
 
+## [0.3.2] - Unreleased
+
+### Fixes
+
+- wait until the recorder has written imported statistics before continuing; previously the daily import that runs right after a backfill could read the statistics before the backfill was written and restart their running sum from zero, which showed up as a large negative day in the Energy dashboard (seen on 0.3.1 upgrades for the new block and VT/MT statistics)
+
+### Energy dashboard
+
+- new action `mojelektro.rebuild_statistics` (optional `days`, default 30): fetches recent 15-minute readings again and rewrites all statistics, to pick up corrected readings or repair statistics
+
 ## [0.3.1] - Unreleased
 
 ### Energy dashboard
