@@ -5,6 +5,7 @@ from datetime import date
 import pytest
 
 from custom_components.mojelektro.tariff import (
+    is_high_energy_tariff,
     is_slovenian_day_off,
     network_tariff_block,
 )
@@ -41,3 +42,22 @@ def test_easter_monday_is_day_off():
 
 def test_non_work_free_state_holiday_is_not_forced_day_off():
     assert not is_slovenian_day_off(date(2026, 6, 8))
+
+
+@pytest.mark.parametrize(
+    ("timestamp", "expected"),
+    [
+        # Workday (Tuesday 10 November 2026): VT 06-22.
+        ("2026-11-10T06:00:00+01:00", False),
+        ("2026-11-10T06:15:00+01:00", True),
+        ("2026-11-10T22:00:00+01:00", True),
+        ("2026-11-10T22:15:00+01:00", False),
+        # Saturday and a work-free holiday are MT all day.
+        ("2026-11-14T12:15:00+01:00", False),
+        ("2026-12-25T12:15:00+01:00", False),
+        # Summer time workday.
+        ("2026-07-13T12:15:00+02:00", True),
+    ],
+)
+def test_energy_tariff(timestamp, expected):
+    assert is_high_energy_tariff(timestamp) is expected

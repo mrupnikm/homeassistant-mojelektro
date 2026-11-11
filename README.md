@@ -1,6 +1,6 @@
 # Moj Elektro for Home Assistant
 
-[![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](https://github.com/mrupnikm/homeassistant-mojelektro)
+[![Version](https://img.shields.io/badge/version-0.3.1-blue.svg)](https://github.com/mrupnikm/homeassistant-mojelektro)
 [![Python check](https://github.com/mrupnikm/homeassistant-mojelektro/actions/workflows/python_check.yml/badge.svg)](https://github.com/mrupnikm/homeassistant-mojelektro/actions/workflows/python_check.yml)
 [![Release validation](https://github.com/mrupnikm/homeassistant-mojelektro/actions/workflows/release_validation.yml/badge.svg)](https://github.com/mrupnikm/homeassistant-mojelektro/actions/workflows/release_validation.yml)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/)
@@ -20,15 +20,15 @@ Home Assistant custom integration for electricity-meter data from the Slovenian 
 
 **Maintained fork:** `mrupnikm/homeassistant-mojelektro`  
 **Maintainer:** [`mrupnikm`](https://github.com/mrupnikm)  
-**Current version:** `0.3.0`  
+**Current version:** `0.3.1`  
 **Home Assistant baseline:** `2025.11+`  
 **API:** `https://api.informatika.si/mojelektro/v1`
 
-Version 0.3.0 adds hourly long-term statistics with correct historic timestamps for the Energy dashboard. Further API functionality is planned for the 0.3.x series.
+Version 0.3.x adds hourly long-term statistics with correct historic timestamps for the Energy dashboard, including per-tariff-block and VT/MT statistics. Further API functionality is planned for the 0.3.x series.
 
 ## What the integration currently provides
 
-- hourly long-term statistics for imported and exported energy, placed on the hour the energy was actually used
+- hourly long-term statistics for imported and exported energy, per network tariff block and per VT/MT energy tariff, placed on the hour the energy was actually used, with a 30-day backfill
 - 15-minute imported and exported energy readings
 - daily imported/exported energy
 - monthly imported/exported energy
@@ -46,25 +46,36 @@ Moj Elektro is **not a real-time source**. Meter readings are typically availabl
 
 Sensors can only record a value at the moment Home Assistant reads it, so the `daily_input` sensor shows yesterday's whole consumption as a single spike at the time it was fetched. Since 0.3.0 the integration also writes Moj Elektro's 15-minute readings, summed per hour, directly into Home Assistant's long-term statistics with their original timestamps:
 
-| Statistic | Statistic ID | Source |
+| Statistic | Statistic ID | Contains |
 | --- | --- | --- |
-| Moj Elektro consumption | `mojelektro:<eimm>_consumption` | A+ (imported energy) |
-| Moj Elektro export | `mojelektro:<eimm>_export` | A− (exported energy) |
+| Moj Elektro consumption | `mojelektro:<eimm>_consumption` | all imported energy (A+) |
+| Moj Elektro export | `mojelektro:<eimm>_export` | all exported energy (A−), only when the meter reports it |
+| Moj Elektro consumption blok 1 … blok 5 | `mojelektro:<eimm>_blok_1` … `_blok_5` | imported energy per network tariff block |
+| Moj Elektro consumption VT | `mojelektro:<eimm>_vt` | imported energy in the higher energy tariff (workdays 06:00–22:00) |
+| Moj Elektro consumption MT | `mojelektro:<eimm>_mt` | imported energy in the lower energy tariff (nights, weekends, work-free holidays) |
 
-`<eimm>` is your EIMM in lowercase with non-alphanumeric characters replaced by `_` (for example `3-12345678` → `3_12345678`).
+`<eimm>` is your EIMM in lowercase with non-alphanumeric characters replaced by `_` (for example `3-12345678` → `3_12345678`). These are statistics, not sensors: in the Energy settings they appear in the same picker as sensors, under the names above.
 
-To use them, open **Settings → Dashboards → Energy**. Under **Grid consumption**, pick **Moj Elektro consumption** instead of the `daily_input` sensor. Under **Return to grid**, pick **Moj Elektro export**.
+The block and VT/MT statistics are different ways of splitting the same total. Every hour, blok 1–5 add up to **Moj Elektro consumption**, and so do VT + MT. Hours outside a block or tariff are stored as 0 kWh. Home Assistant adds all grid consumption sources together, so pick **one** of these setups under **Settings → Dashboards → Energy → Electricity grid → Grid consumption**:
+
+| Setup | Add as grid consumption | Use when |
+| --- | --- | --- |
+| Total | Moj Elektro consumption | you want one consumption line and one price |
+| Network tariff blocks | Moj Elektro consumption blok 1, 2, 3, 4 and 5 (five sources) | you want usage split and priced per tariff block |
+| Energy tariffs | Moj Elektro consumption VT and MT (two sources) | you want usage split and priced per VT/MT |
+
+Do not combine the setups, and remove `daily_input` and the other `sensor.moj_elektro_*` sensors from the Energy settings; otherwise energy is counted more than once. If you export energy, add **Moj Elektro export** under **Return to grid**.
 
 Notes:
 
-- data still arrives about 24 hours late, but it lands on the correct hour
+- data still arrives about 24 hours late, but it lands on the correct hour: yesterday is filled in the next morning and today stays empty
 - resolution is hourly, which is the finest resolution of long-term statistics
 - an hour is imported only once all four of its 15-minute readings are available
-- the last three days are re-imported on every daily run, so later corrections from Moj Elektro replace earlier values without double counting
+- the first time any consumption statistic is missing (new install or upgrade), the last 30 days are fetched from Moj Elektro and imported (backfill); it runs once per Home Assistant start and is retried after a restart if it fails
+- after that, only yesterday is fetched each day; re-importing the same data never double counts, but corrections Moj Elektro makes to older days are not picked up
 - history recorded by the old sensors stays on those sensors and is not moved to the new statistics
-- statistics start on the first day after upgrading; earlier history is not backfilled yet
 - all existing sensors are kept unchanged for backward compatibility
-- you can check the imported rows under **Developer tools → Statistics**
+- you can check the imported rows under **Developer tools → Statistics**, or with the `recorder.get_statistics` action under **Developer tools → Actions**
 
 ## Why this fork exists
 
@@ -177,8 +188,8 @@ No `configuration.yaml` entry is required.
 - [ ] add `/souporaba` support
 - [ ] add total meter-reading sensors
 - [x] import 15-minute data into long-term statistics on the correct hour (0.3.0)
-- [ ] backfill statistics history on first setup
-- [ ] per-tariff-block statistics
+- [x] backfill statistics history on first setup (0.3.1)
+- [x] per-tariff-block and VT/MT statistics (0.3.1)
 - [ ] expose useful metering-point metadata from `/merilno-mesto/{identifikator}`
 - [ ] improve contracted-power data from `/merilna-tocka/{gsrn}`
 - [ ] review the 15-minute-data window against current API behaviour
