@@ -1,31 +1,34 @@
 # Moj Elektro for Home Assistant
 
-[![Version](https://img.shields.io/badge/version-0.2.7-blue.svg)](https://github.com/jursko90/homeassistant-mojelektro)
-[![Python check](https://github.com/jursko90/homeassistant-mojelektro/actions/workflows/python_check.yml/badge.svg)](https://github.com/jursko90/homeassistant-mojelektro/actions/workflows/python_check.yml)
-[![Release validation](https://github.com/jursko90/homeassistant-mojelektro/actions/workflows/release_validation.yml/badge.svg)](https://github.com/jursko90/homeassistant-mojelektro/actions/workflows/release_validation.yml)
+[![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](https://github.com/mrupnikm/homeassistant-mojelektro)
+[![Python check](https://github.com/mrupnikm/homeassistant-mojelektro/actions/workflows/python_check.yml/badge.svg)](https://github.com/mrupnikm/homeassistant-mojelektro/actions/workflows/python_check.yml)
+[![Release validation](https://github.com/mrupnikm/homeassistant-mojelektro/actions/workflows/release_validation.yml/badge.svg)](https://github.com/mrupnikm/homeassistant-mojelektro/actions/workflows/release_validation.yml)
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://hacs.xyz/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/jursko90/homeassistant-mojelektro)](https://github.com/jursko90/homeassistant-mojelektro/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/mrupnikm/homeassistant-mojelektro)](https://github.com/mrupnikm/homeassistant-mojelektro/stargazers)
 
 Home Assistant custom integration for electricity-meter data from the Slovenian **Moj Elektro** service using the official Informatika.si API.
 
 > [!IMPORTANT]
 > **This repository is a maintained fork of [frlequ/homeassistant-mojelektro](https://github.com/frlequ/homeassistant-mojelektro).**
 >
+> It continues from the maintained fork [jursko90/homeassistant-mojelektro](https://github.com/jursko90/homeassistant-mojelektro), which provided the 0.2.7 compatibility release.
+>
 > The original project, authorship and MIT license are preserved. This fork exists to keep the integration compatible with current Home Assistant releases, fix outstanding issues and continue development against the current Moj Elektro API.
 
 ## Current status
 
-**Maintained fork:** `jursko90/homeassistant-mojelektro`  
-**Maintainer:** [`jursko90`](https://github.com/jursko90)  
-**Current version:** `0.2.7`  
-**Home Assistant baseline:** `2025.1+`  
+**Maintained fork:** `mrupnikm/homeassistant-mojelektro`  
+**Maintainer:** [`mrupnikm`](https://github.com/mrupnikm)  
+**Current version:** `0.3.0`  
+**Home Assistant baseline:** `2025.11+`  
 **API:** `https://api.informatika.si/mojelektro/v1`
 
-Version 0.2.7 is primarily a **compatibility and stability release**. New API functionality is planned for the 0.3.x series.
+Version 0.3.0 adds hourly long-term statistics with correct historic timestamps for the Energy dashboard. Further API functionality is planned for the 0.3.x series.
 
 ## What the integration currently provides
 
+- hourly long-term statistics for imported and exported energy, placed on the hour the energy was actually used
 - 15-minute imported and exported energy readings
 - daily imported/exported energy
 - monthly imported/exported energy
@@ -38,6 +41,30 @@ Version 0.2.7 is primarily a **compatibility and stability release**. New API fu
 - stable entities across temporary partial API responses
 
 Moj Elektro is **not a real-time source**. Meter readings are typically available with an approximately **24-hour delay**. Data can also be incomplete or temporarily inaccurate while the upstream service aggregates readings, especially during the overnight period (roughly midnight to 06:00). Dashboards and automations should therefore not treat the 15-minute sensors as near-real-time measurements.
+
+## Energy dashboard
+
+Sensors can only record a value at the moment Home Assistant reads it, so the `daily_input` sensor shows yesterday's whole consumption as a single spike at the time it was fetched. Since 0.3.0 the integration also writes Moj Elektro's 15-minute readings, summed per hour, directly into Home Assistant's long-term statistics with their original timestamps:
+
+| Statistic | Statistic ID | Source |
+| --- | --- | --- |
+| Moj Elektro consumption | `mojelektro:<eimm>_consumption` | A+ (imported energy) |
+| Moj Elektro export | `mojelektro:<eimm>_export` | A− (exported energy) |
+
+`<eimm>` is your EIMM in lowercase with non-alphanumeric characters replaced by `_` (for example `3-12345678` → `3_12345678`).
+
+To use them, open **Settings → Dashboards → Energy**. Under **Grid consumption**, pick **Moj Elektro consumption** instead of the `daily_input` sensor. Under **Return to grid**, pick **Moj Elektro export**.
+
+Notes:
+
+- data still arrives about 24 hours late, but it lands on the correct hour
+- resolution is hourly, which is the finest resolution of long-term statistics
+- an hour is imported only once all four of its 15-minute readings are available
+- the last three days are re-imported on every daily run, so later corrections from Moj Elektro replace earlier values without double counting
+- history recorded by the old sensors stays on those sensors and is not moved to the new statistics
+- statistics start on the first day after upgrading; earlier history is not backfilled yet
+- all existing sensors are kept unchanged for backward compatibility
+- you can check the imported rows under **Developer tools → Statistics**
 
 ## Why this fork exists
 
@@ -91,7 +118,7 @@ This fork is installed as a **custom HACS repository**.
 2. Open the menu and choose **Custom repositories**.
 3. Add:
 
-   `https://github.com/jursko90/homeassistant-mojelektro`
+   `https://github.com/mrupnikm/homeassistant-mojelektro`
 
 4. Select category **Integration**.
 5. Install **Moj Elektro**.
@@ -149,7 +176,9 @@ No `configuration.yaml` entry is required.
 - [ ] use `/reading-qualities` to expose or reject low-quality readings correctly
 - [ ] add `/souporaba` support
 - [ ] add total meter-reading sensors
-- [ ] improve long-term statistics / Energy Dashboard support
+- [x] import 15-minute data into long-term statistics on the correct hour (0.3.0)
+- [ ] backfill statistics history on first setup
+- [ ] per-tariff-block statistics
 - [ ] expose useful metering-point metadata from `/merilno-mesto/{identifikator}`
 - [ ] improve contracted-power data from `/merilna-tocka/{gsrn}`
 - [ ] review the 15-minute-data window against current API behaviour
@@ -168,7 +197,7 @@ The original repository is:
 
 **[frlequ/homeassistant-mojelektro](https://github.com/frlequ/homeassistant-mojelektro)**
 
-This maintained fork builds on that work and remains licensed under the same **MIT License**. Original copyright and license notices are retained.
+This maintained fork builds on that work, and on the 0.2.7 release from [jursko90/homeassistant-mojelektro](https://github.com/jursko90/homeassistant-mojelektro), and remains licensed under the same **MIT License**. Original copyright and license notices are retained.
 
 Where upstream pull requests or fixes are incorporated, they are documented above and in the changelog.
 
@@ -182,7 +211,7 @@ The original integration was created and maintained by **frlequ**. If the origin
 
 For problems specific to this maintained fork, use the fork issue tracker once GitHub Issues are enabled for the repository:
 
-https://github.com/jursko90/homeassistant-mojelektro/issues
+https://github.com/mrupnikm/homeassistant-mojelektro/issues
 
 When reporting a problem, please include:
 

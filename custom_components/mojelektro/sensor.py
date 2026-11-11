@@ -20,6 +20,7 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
+from . import statistics
 from .const import CONF_DECIMAL, CONF_METER_ID, CONF_TOKEN, DOMAIN, VERSION
 from .moj_elektro_api import (
     MojElektroApi,
@@ -40,11 +41,26 @@ async def async_setup_entry(
     session = async_get_clientsession(hass)
 
     api = MojElektroApi(token, meter_id, decimal, session)
+    last_imported_date = None
+
+    async def async_import_statistics():
+        """Import validated 15-minute data into statistics once per day."""
+        nonlocal last_imported_date
+        if not api.cacheOK or api.cache_date == last_imported_date:
+            return
+        try:
+            await statistics.async_import(hass, meter_id, api.cache.get("15"))
+        except Exception:  # noqa: BLE001 - never break sensor updates
+            _LOGGER.exception("Failed to import Moj Elektro statistics")
+            return
+        last_imported_date = api.cache_date
 
     async def async_update_data():
         """Fetch data and translate API errors to Home Assistant errors."""
         try:
-            return await api.getData()
+            data = await api.getData()
+            await async_import_statistics()
+            return data
         except MojElektroAuthError as err:
             raise ConfigEntryAuthFailed("Moj Elektro authentication failed") from err
         except MojElektroError as err:

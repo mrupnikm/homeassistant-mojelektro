@@ -42,8 +42,8 @@ jobs:
           assert api.consumption_by_block([], json.loads(SETUP_TAG_BLOCKS_ARRAY)) == {}
           PY
 
-      - name: Run tariff regression tests
-        run: python -m pytest -q tests/test_tariff.py
+      - name: Run regression tests
+        run: python -m pytest -q tests/
 
       - name: Check for Python errors
         run: |

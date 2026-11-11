@@ -4,6 +4,21 @@ All notable changes to this maintained fork are documented here.
 
 This project is a maintained fork of [frlequ/homeassistant-mojelektro](https://github.com/frlequ/homeassistant-mojelektro). Upstream authorship and the original MIT license are preserved.
 
+## [0.3.0] - Unreleased
+
+### Energy dashboard
+
+- import validated Moj Elektro 15-minute readings into Home Assistant long-term statistics with their original timestamps, so the Energy dashboard shows each hour's usage on the hour it happened
+- new external statistics `mojelektro:<eimm>_consumption` (A+) and `mojelektro:<eimm>_export` (A−), hourly resolution
+- interval-end timestamps are shifted to the hour they belong to (the reading stamped 01:00 belongs to 00:00–01:00); incomplete hours are skipped and DST days produce 23/25 hours
+- the last three days are re-imported once per day so corrected readings replace earlier values without double counting
+- existing sensors are unchanged; history recorded by the old sensors stays on those sensors
+
+### Compatibility
+
+- the integration now depends on `recorder`
+- minimum Home Assistant version raised to 2025.11 (statistics metadata `unit_class`)
+
 ## [0.2.7] - 2026-09-21
 
 First maintained-fork release.

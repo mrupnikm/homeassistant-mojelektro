@@ -1,12 +1,12 @@
 {
   "domain": "mojelektro",
   "name": "Moj Elektro",
-  "codeowners": [],
+  "codeowners": ["@mrupnikm"],
   "config_flow": true,
-  "dependencies": [],
-  "documentation": "https://github.com/jursko90/homeassistant-mojelektro",
+  "dependencies": ["recorder"],
+  "documentation": "https://github.com/mrupnikm/homeassistant-mojelektro",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/jursko90/homeassistant-mojelektro/issues",
+  "issue_tracker": "https://github.com/mrupnikm/homeassistant-mojelektro/issues",
   "requirements": [],
-  "version": "0.2.7"
+  "version": "0.3.0"
 }

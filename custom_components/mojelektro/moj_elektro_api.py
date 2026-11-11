@@ -324,11 +324,22 @@ class MojElektroApi:
                 readings_15[0]["timestamp"], "%Y-%m-%dT%H:%M:%S%z"
             ).strftime("%Y-%m-%d")
             cur_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+            # Select by interval start instead of a fixed 96 readings: DST
+            # days have 92 or 100 quarter-hours.
+            day_readings = [
+                item
+                for item in readings_15
+                if (
+                    datetime.strptime(item["timestamp"], "%Y-%m-%dT%H:%M:%S%z")
+                    - timedelta(minutes=15)
+                ).strftime("%Y-%m-%d")
+                == match_date
+            ]
             sum_15min_part = sum(
-                float(item["value"]) for item in readings_15[10:96]
+                float(item["value"]) for item in day_readings[10:]
             )
             sum_15min = round(
-                sum(float(item["value"]) for item in readings_15[0:96]),
+                sum(float(item["value"]) for item in day_readings),
                 self.decimal,
             )
             sum_et = round(
